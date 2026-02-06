@@ -1,25 +1,28 @@
 cmake_minimum_required(VERSION 3.10)
-project(GumTrace C)
+project(GumTrace CXX)
 
-set(CMAKE_C_STANDARD 11)
+set(CMAKE_CXX_STANDARD 11)
 
-# Add libs directory to include path
 include_directories(${CMAKE_SOURCE_DIR}/libs)
 include_directories(${CMAKE_SOURCE_DIR})
 
-# Detect Platform
+
+add_library(GumTrace SHARED
+        src/main.cpp
+        src/GumTrace.cpp
+        src/Utils.cpp
+        src/CallbackContext.cpp
+)
+
 if(ANDROID)
     message(STATUS "Configuring for Android")
-
-    add_library(GumTrace SHARED main.c)
 
     target_link_libraries(GumTrace PRIVATE ${CMAKE_SOURCE_DIR}/libs/FridaGum-Android-17.6.2.a)
     target_link_libraries(GumTrace PRIVATE log dl m z)
 
-elseif(CMAKE_SYSTEM_NAME STREQUAL "iOS" OR CMAKE_OSX_SYSROOT MATCHES "iPhoneOS")
+else()
     message(STATUS "Configuring for iOS")
 
-    add_library(GumTrace SHARED main.c)
 
     set(DEVELOPER_DIR "/Applications/Xcode.app/Contents/Developer")
     set(CMAKE_XCODE_DEVELOPER_DIR ${DEVELOPER_DIR})
@@ -64,7 +67,4 @@ elseif(CMAKE_SYSTEM_NAME STREQUAL "iOS" OR CMAKE_OSX_SYSROOT MATCHES "iPhoneOS")
 
     set(CMAKE_C_COMPILER ${DEVELOPER_DIR}/Toolchains/XcodeDefault.xctoolchain/usr/bin/clang)
     set(CMAKE_CXX_COMPILER ${DEVELOPER_DIR}/Toolchains/XcodeDefault.xctoolchain/usr/bin/clang++)
-else()
-    message(WARNING "Building for host platform (not Android or iOS). This might fail if libraries are not compatible.")
-    add_library(GumTrace SHARED main.c)
 endif()

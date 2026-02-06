@@ -1,6 +1,6 @@
 #!/bin/bash
 
-ANDROID_NDK_HOME=/Users/lidongyooo/Library/Android/sdk/ndk/25.0.8775105
+ANDROID_NDK_HOME=/Users/lidongyooo/Library/Android/sdk/ndk/29.0.14206865
 
 # Check if ANDROID_NDK_HOME is set
 if [ -z "$ANDROID_NDK_HOME" ]; then
@@ -17,7 +17,7 @@ cd build_android
 cmake .. \
     -DCMAKE_TOOLCHAIN_FILE="$ANDROID_NDK_HOME/build/cmake/android.toolchain.cmake" \
     -DANDROID_ABI=arm64-v8a \
-    -DANDROID_PLATFORM=android-25 \
+    -DANDROID_PLATFORM=android-24 \
     -DCMAKE_BUILD_TYPE=Release
 
 cmake --build .
