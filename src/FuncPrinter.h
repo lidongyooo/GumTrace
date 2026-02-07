@@ -12,11 +12,16 @@ public:
     static void before(FUNC_CONTEXT* func_context);
     static void syscall(FUNC_CONTEXT* func_context);
     static void after(FUNC_CONTEXT* func_context, GumCpuContext* curr_cpu_context);
-    static void jni_before(FUNC_CONTEXT* func_context);
-    static void jni_after(FUNC_CONTEXT* func_context, GumCpuContext* curr_cpu_context);
     static void params_join(FUNC_CONTEXT* func_context, uint count);
     static void read_string(int& buff_n, char *buff, char* str, size_t max_len = 1024);
     static void hexdump(int& buff_n, char *buff, uint64_t address, size_t count);
+
+
+#if PLATFORM_ANDROID
+    static void jni_before(FUNC_CONTEXT* func_context);
+    static void jni_after(FUNC_CONTEXT* func_context, GumCpuContext* curr_cpu_context);
+#endif
+
 };
 
 

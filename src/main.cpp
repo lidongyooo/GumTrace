@@ -64,6 +64,7 @@ void init(const char *module_names, char *trace_file_path, int thread_id) {
         instance->svc_func_maps[std::stoi(svc_name_vector.at(1))] = svc_name_vector.at(0);
     }
 
+#if PLATFORM_ANDROID
     auto libart_module = gum_process_find_module_by_name("libart.so");
     GumAddress JNI_GetCreatedJavaVMs_addr = gum_module_find_symbol_by_name(libart_module, "JNI_GetCreatedJavaVMs");
     if (JNI_GetCreatedJavaVMs_addr == 0) {
@@ -89,6 +90,7 @@ void init(const char *module_names, char *trace_file_path, int thread_id) {
 
         delete[] vms;
     }
+#    endif
 }
 
 void* thread_function(void* arg) {
@@ -107,7 +109,6 @@ void* thread_function(void* arg) {
 
                 LOGE("每20秒新增：%ldMB 当前文件大小：%ldGB",
                      growth_mb, size_gb);
-
                 last_size = stat_buf.st_size;
             } else {
                 LOGE("stat 失败，错误码：%d，错误信息：%s",

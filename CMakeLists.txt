@@ -73,4 +73,5 @@ else()
 
     set(CMAKE_C_COMPILER ${DEVELOPER_DIR}/Toolchains/XcodeDefault.xctoolchain/usr/bin/clang)
     set(CMAKE_CXX_COMPILER ${DEVELOPER_DIR}/Toolchains/XcodeDefault.xctoolchain/usr/bin/clang++)
+    set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -std=c++11 -ObjC++")
 endif()

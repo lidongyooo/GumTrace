@@ -35,9 +35,6 @@ public:
     int trace_flash = 0;
     std::unordered_map<size_t, std::string> func_maps;
     FUNC_CONTEXT last_func_context = {};
-    JavaVM *java_vm = nullptr;
-    JNIEnv *jni_env = nullptr;
-    bool jni_env_init = false;
 
     GumStalker* _stalker;
     GumStalkerTransformer* _transformer;
@@ -49,8 +46,6 @@ public:
     std::map<std::string, std::size_t> get_module_by_name(const std::string &module_name);
     void follow();
     void unfollow();
-    JNIEnv *get_run_time_env();
-
 
     static void callout_callback(GumCpuContext *cpu_context, gpointer user_data);
 
@@ -64,12 +59,23 @@ public:
         size_t end;
     } last_module_cache;
 
-    std::unordered_map<size_t, std::string> jni_func_maps;
     std::unordered_map<size_t, std::string> svc_func_maps;
+    std::unordered_map<size_t, std::string> func_fds;
+
+#if PLATFORM_ANDROID
+    JNIEnv *get_run_time_env();
+
+
+    JavaVM *java_vm = nullptr;
+    JNIEnv *jni_env = nullptr;
+    bool jni_env_init = false;
+    std::unordered_map<size_t, std::string> jni_func_maps;
     std::unordered_map<size_t, std::string> jni_classes;
     std::unordered_map<size_t, std::string> jni_methods;
     std::unordered_map<size_t, std::string> jni_methods_classes;
-    std::unordered_map<size_t, std::string> func_fds;
+#    endif
+
+
 
 private:
     GumTrace();

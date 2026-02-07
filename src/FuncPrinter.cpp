@@ -194,6 +194,8 @@ void FuncPrinter::before(FUNC_CONTEXT *func_context) {
     func_context->info[func_context->info_n++] = '\n';
 }
 
+#if PLATFORM_ANDROID
+
 void FuncPrinter::jni_before(FUNC_CONTEXT *func_context) {
     // nothing todo
 }
@@ -277,7 +279,7 @@ void FuncPrinter::jni_after(FUNC_CONTEXT *func_context, GumCpuContext *curr_cpu_
 
             if (instance->jni_methods.count(func_context->cpu_context.x[2]) > 0) {
                 Utils::auto_snprintf(func_context->info_n, func_context->info, "\njmethod: %s", instance->jni_methods[func_context->cpu_context.x[2]].c_str());
-                
+
                 if (instance->jni_methods_classes.count(func_context->cpu_context.x[2]) > 0) {
                      Utils::auto_snprintf(func_context->info_n, func_context->info, "\njclass: %s", instance->jni_methods_classes[func_context->cpu_context.x[2]].c_str());
                 }
@@ -290,6 +292,8 @@ void FuncPrinter::jni_after(FUNC_CONTEXT *func_context, GumCpuContext *curr_cpu_
     Utils::append_uint64_hex(func_context->info, func_context->info_n, curr_cpu_context->x[0]);
     func_context->info[func_context->info_n++] = '\n';
 }
+
+#endif
 
 void FuncPrinter::after(FUNC_CONTEXT *func_context, GumCpuContext *curr_cpu_context) {
     Utils::append_string(func_context->info, func_context->info_n, "ret: 0x");

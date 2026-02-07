@@ -24,6 +24,8 @@ GumTrace::~GumTrace() {
     if (_transformer) g_object_unref(_transformer);
 }
 
+#if PLATFORM_ANDROID
+
 JNIEnv *GumTrace::get_run_time_env() {
     if (java_vm == nullptr) {
         return nullptr;
@@ -47,6 +49,10 @@ JNIEnv *GumTrace::get_run_time_env() {
     }
     return jni_env;
 }
+
+#endif
+
+
 
 void GumTrace::callout_callback(GumCpuContext *cpu_context, gpointer user_data) {
     auto self = get_instance();
@@ -87,12 +93,21 @@ void GumTrace::callout_callback(GumCpuContext *cpu_context, gpointer user_data) 
         }
 
         self->last_func_context.call = false;
+#        if PLATFORM_ANDROID
+
         if (self->last_func_context.is_jni) {
             self->last_func_context.is_jni = false;
             FuncPrinter::jni_after(&self->last_func_context, cpu_context);
         } else {
             FuncPrinter::after(&self->last_func_context, cpu_context);
         }
+
+#        else
+
+            FuncPrinter::after(&self->last_func_context, cpu_context);
+
+#endif
+
         self->trace_file.write(self->last_func_context.info, self->last_func_context.info_n);
     }
 
@@ -257,7 +272,9 @@ void GumTrace::callout_callback(GumCpuContext *cpu_context, gpointer user_data) 
                 self->last_func_context.call = true;
 
                 FuncPrinter::before(&self->last_func_context);
-            } else if (self->get_run_time_env() != nullptr && self->jni_func_maps.count(jump_addr) > 0) {
+            }
+#            if PLATFORM_ANDROID
+            else if (self->get_run_time_env() != nullptr && self->jni_func_maps.count(jump_addr) > 0) {
                 self->last_func_context.info_n = 0;
                 self->last_func_context.address = jump_addr;
                 self->last_func_context.name = self->jni_func_maps[jump_addr].c_str();
@@ -267,6 +284,9 @@ void GumTrace::callout_callback(GumCpuContext *cpu_context, gpointer user_data) 
 
                 FuncPrinter::jni_before(&self->last_func_context);
             }
+#endif
+
+
         }
     }
 

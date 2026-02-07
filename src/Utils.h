@@ -24,14 +24,14 @@
 
 #include "../libs/FridaGum-IOS-17.6.2.h"
 #include <Foundation.h>
-#define LOGE(...) NSLog(@"[ERROR] %s: %@", LOG_TAG, [NSString stringWithFormat:__VA_ARGS__])
+#define LOGE(fmt, ...) NSLog(@"[ERROR] %s: " @fmt, LOG_TAG, ##__VA_ARGS__)
 
 #else
 
-#include "libs/FridaGum-Android-17.6.2.h"
+#include "../libs/FridaGum-Android-17.6.2.h"
 #include <jni.h>
 #include <android/log.h>
-#define LOGE(...) __android_log_print(ANDROID_LOG_ERROR, LOG_TAG, __VA_ARGS__)
+#define LOGE(fmt, ...) __android_log_print(ANDROID_LOG_ERROR, LOG_TAG, fmt, ##__VA_ARGS__)
 
 #endif
 
