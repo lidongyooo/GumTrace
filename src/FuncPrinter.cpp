@@ -160,6 +160,92 @@ void FuncPrinter::syscall(FUNC_CONTEXT *func_context) {
 void FuncPrinter::before(FUNC_CONTEXT *func_context) {
     Utils::auto_snprintf(func_context->info_n, func_context->info, "call func: %s", func_context->name);
 
+#if PLATFORM_IOS
+    int params_number = 0;
+    std::vector<uint64_t> string_vector;
+    std::vector<int> string_index_vector;
+    std::vector<std::array<int, 2>> hexdump_vector;
+    const char *class_name = nullptr;
+    id obj = nil;
+
+    std::string func_name_str = func_context->name;
+
+    if (func_name_str == "objc_storeStrong") {
+        params_number = 2;
+        uint64_t isa = 0;
+        get_obj_isa_address(&isa, func_context->cpu_context.x[0], sizeof(isa));
+        obj = (id)isa;
+        class_name = object_getClassName(obj);
+        string_vector.push_back((uint64_t)class_name);
+    } else if (func_name_str == "objc_msgSend") {
+        params_number = 2;
+        uint64_t selector_ptr = func_context->cpu_context.x[1];  // selector
+        const char *selector_name = sel_getName((SEL)selector_ptr);
+        id target = (id)func_context->cpu_context.x[0];
+
+        if (target == nil) {
+            Utils::auto_snprintf(func_context->info_n, func_context->info, "[nil_target %s]", selector_name);
+        } else {
+            const char* gotClassName = get_class_name(target);
+            size_t len1 = strlen(gotClassName);
+            size_t len2 = strlen(selector_name);
+            auto class_selector_name = (char*)malloc(len1 + len2 + 4);
+            snprintf(class_selector_name, len1 + len2 + 4, "[%s %s]", gotClassName, selector_name);
+
+            selector_func_general_print(func_context->info_n, func_context->info, &func_context->cpu_context, class_selector_name);
+            Utils::auto_snprintf(func_context->info_n, func_context->info, "%s", class_selector_name);
+            free(class_selector_name);
+        }
+    } else if (func_name_str == "objc_retainAutoreleasedReturnValue" || func_name_str == "objc_retainAutoreleaseReturnValue" || func_name_str == "objc_autorelease" ||
+        func_name_str == "objc_release" || func_name_str == "objc_retain" || func_name_str == "objc_autoreleaseReturnValue") {
+        params_number = 1;
+        if ((id)func_context->cpu_context.x[0] != nil) {
+            class_name = get_class_name((id)func_context->cpu_context.x[0]);
+            string_vector.push_back((uint64_t)class_name);
+            if (strstr(class_name, "FMDeviceSafeDictionary") == nullptr) {
+                obj = (id)func_context->cpu_context.x[0];
+            }
+        }
+    } else if (func_name_str == "NSClassFromString") {
+        params_number = 1;
+        if ((id)func_context->cpu_context.x[0] != nil) {
+            obj = (id)func_context->cpu_context.x[0];
+            class_name = object_getClassName(obj);
+        }
+    } else if (func_name_str == "CC_SHA256") {
+        params_number = 2;
+        hexdump_vector.push_back(std::array<int, 2>{0, 1});
+    } else if (func_name_str == "CC_MD5") {
+        params_number = 2;
+        hexdump_vector.push_back(std::array<int, 2>{0, 1});
+    }
+
+    if (params_number > 0 || obj != nil || !string_vector.empty() || !hexdump_vector.empty()) {
+         params_join(func_context, params_number);
+
+         if (class_name != nullptr && obj != nil) {
+             print_ios_object(func_context->info_n, func_context->info, obj);
+         }
+
+         for (int reg_index: string_index_vector) {
+             Utils::auto_snprintf(func_context->info_n, func_context->info, "\narg %d: ", reg_index);
+             read_string(func_context->info_n, func_context->info, (char*)func_context->cpu_context.x[reg_index]);
+         }
+
+         for (uint64_t str_address: string_vector) {
+             Utils::auto_snprintf(func_context->info_n, func_context->info, "\nclass : ");
+             read_string(func_context->info_n, func_context->info, (char*)str_address, 1024);
+         }
+
+         for (std::array<int, 2> reg_pair: hexdump_vector) {
+             hexdump(func_context->info_n, func_context->info, func_context->cpu_context.x[reg_pair[0]], reg_pair[1] == 32 ? 0 : func_context->cpu_context.x[reg_pair[1]]);
+         }
+         
+         func_context->info[func_context->info_n++] = '\n';
+         return;
+    }
+#endif
+
     auto it = func_configs.find(func_context->name);
     if (it == func_configs.end()) {
         params_join(func_context, 0);
@@ -300,3 +386,209 @@ void FuncPrinter::after(FUNC_CONTEXT *func_context, GumCpuContext *curr_cpu_cont
     Utils::append_uint64_hex(func_context->info, func_context->info_n, curr_cpu_context->x[0]);
     func_context->info[func_context->info_n++] = '\n';
 }
+
+#if PLATFORM_IOS
+#include <objc/runtime.h>
+#include <objc/message.h>
+
+void FuncPrinter::get_obj_isa_address(uint64_t *isa, uint64_t address, size_t size) {
+    memcpy(isa, (void*)address, size);
+}
+
+void FuncPrinter::print_ios_dictionary(int& buff_n, char* buff, id obj, const char *class_name, int indent_level) {
+    @autoreleasepool {
+        NSDictionary *dict = (NSDictionary *)obj;
+        NSUInteger count = [dict count];
+
+        Utils::append_char(buff, buff_n, '\n');
+        for (int i = 0; i < indent_level * 2; ++i) Utils::append_char(buff, buff_n, ' ');
+        Utils::append_char(buff, buff_n, '{');
+
+        if (count == 0) {
+            Utils::append_string(buff, buff_n, "}");
+            return;
+        }
+
+        BOOL first = YES;
+        NSArray *keys = [dict allKeys];
+
+        if ([keys count] > 0 && [[keys firstObject] isKindOfClass:[NSString class]]) {
+            keys = [keys sortedArrayUsingSelector:@selector(compare:)];
+        }
+
+        for (id key in keys) {
+            id value = [dict objectForKey:key];
+
+            if (!first) {
+                Utils::append_string(buff, buff_n, ",");
+            }
+            Utils::append_char(buff, buff_n, '\n');
+            for (int i = 0; i < (indent_level + 1) * 2; ++i) Utils::append_char(buff, buff_n, ' ');
+
+            if ([key isKindOfClass:[NSString class]]) {
+                Utils::auto_snprintf(buff_n, buff, "\"%s\"", [key UTF8String]);
+            } else if ([key isKindOfClass:[NSNumber class]]) {
+                Utils::auto_snprintf(buff_n, buff, "%s", [[key stringValue] UTF8String]);
+            } else {
+                Utils::auto_snprintf(buff_n, buff, "%s", object_getClassName(key));
+            }
+
+            Utils::append_string(buff, buff_n, ": ");
+            print_ios_object(buff_n, buff, value, indent_level + 1);
+
+            first = NO;
+        }
+
+        Utils::append_char(buff, buff_n, '\n');
+        for (int i = 0; i < indent_level * 2; ++i) Utils::append_char(buff, buff_n, ' ');
+        Utils::append_char(buff, buff_n, '}');
+    }
+}
+
+void FuncPrinter::print_ios_array(int& buff_n, char* buff, id obj, const char *class_name, int indent_level) {
+    @autoreleasepool {
+        NSArray *array = (NSArray *)obj;
+        NSUInteger count = [array count];
+
+        Utils::append_char(buff, buff_n, '\n');
+        for (int i = 0; i < indent_level * 2; ++i) Utils::append_char(buff, buff_n, ' ');
+        Utils::append_char(buff, buff_n, '[');
+
+        if (count == 0) {
+            Utils::append_string(buff, buff_n, "]");
+            return;
+        }
+
+        for (NSUInteger i = 0; i < count; i++) {
+            if (i > 0) {
+                Utils::append_string(buff, buff_n, ",");
+            }
+            
+            Utils::append_char(buff, buff_n, '\n');
+            for (int j = 0; j < (indent_level + 1) * 2; ++j) Utils::append_char(buff, buff_n, ' ');
+
+            id element = [array objectAtIndex:i];
+            print_ios_object(buff_n, buff, element, indent_level + 1);
+        }
+
+        Utils::append_char(buff, buff_n, '\n');
+        for (int i = 0; i < indent_level * 2; ++i) Utils::append_char(buff, buff_n, ' ');
+        Utils::append_char(buff, buff_n, ']');
+    }
+}
+
+void FuncPrinter::print_ios_string(int& buff_n, char* buff, id obj, const char *class_name, int indent_level) {
+    @autoreleasepool {
+        NSString *str = (NSString *)obj;
+        NSUInteger length = [str length];
+
+        if (indent_level == 0) {
+            Utils::append_string(buff, buff_n, "\n");
+        }
+
+        if (length > 1024) {
+            NSString *truncated = [str substringToIndex:1021];
+            Utils::auto_snprintf(buff_n, buff, "\"%s...\"", [truncated UTF8String]);
+        } else {
+            NSString *escaped = [[str stringByReplacingOccurrencesOfString:@"\"" withString:@"\\\""]
+                                stringByReplacingOccurrencesOfString:@"\n" withString:@"\\n"];
+            Utils::auto_snprintf(buff_n, buff, "\"%s\"", [escaped UTF8String]);
+        }
+    }
+}
+
+void FuncPrinter::print_ios_data(int& buff_n, char* buff, id obj, const char *class_name, int indent_level) {
+    @autoreleasepool {
+        NSData *data = (NSData *)obj;
+        NSUInteger length = [data length];
+        if (length == 0) {
+            Utils::append_string(buff, buff_n, "null");
+        } else {
+            auto bytes = (uint64_t)[data bytes];
+            hexdump(buff_n, buff, bytes, (size_t)length);
+        }
+    }
+}
+
+void FuncPrinter::print_ios_number(int& buff_n, char* buff, id obj, const char *class_name, int indent_level) {
+    @autoreleasepool {
+        NSNumber *number = (NSNumber *)obj;
+
+        if (indent_level == 0) {
+            Utils::append_string(buff, buff_n, "\n");
+        }
+
+        Utils::append_string(buff, buff_n, [[number stringValue] UTF8String]);
+
+        const char *type = [number objCType];
+        if (strcmp(type, @encode(int)) == 0) {
+            Utils::append_string(buff, buff_n, "(int)");
+        } else if (strcmp(type, @encode(long)) == 0) {
+            Utils::append_string(buff, buff_n, "(long)");
+        } else if (strcmp(type, @encode(double)) == 0) {
+            Utils::append_string(buff, buff_n, "(double)");
+        } else if (strcmp(type, @encode(float)) == 0) {
+            Utils::append_string(buff, buff_n, "(float)");
+        } else if (strcmp(type, @encode(BOOL)) == 0) {
+            Utils::append_string(buff, buff_n, "(bool)");
+        }
+    }
+}
+
+void FuncPrinter::print_ios_null(int& buff_n, char* buff, id obj, const char *class_name, int indent_level) {
+    Utils::append_string(buff, buff_n, "\nnull");
+}
+
+void FuncPrinter::print_ios_object(int& buff_n, char* buff, id obj, int indent_level) {
+    if (obj == nil) {
+        Utils::append_string(buff, buff_n, "\nnull");
+        return;
+    }
+
+    @autoreleasepool {
+        const char *class_name = object_getClassName(obj);
+
+        if ([obj isKindOfClass:[NSDictionary class]]) {
+            print_ios_dictionary(buff_n, buff, obj, class_name, indent_level);
+        } else if ([obj isKindOfClass:[NSArray class]]) {
+            print_ios_array(buff_n, buff, obj, class_name, indent_level);
+        } else if ([obj isKindOfClass:[NSString class]]) {
+            print_ios_string(buff_n, buff, obj, class_name, indent_level);
+        } else if ([obj isKindOfClass:[NSNumber class]]) {
+            print_ios_number(buff_n, buff, obj, class_name, indent_level);
+        } else if ([obj isKindOfClass:[NSData class]]) {
+            print_ios_data(buff_n, buff, obj, class_name, indent_level);
+        } else if (obj == [NSNull null]) {
+            print_ios_null(buff_n, buff, obj, class_name, indent_level);
+        } else {
+            Utils::auto_snprintf(buff_n, buff, "\n%s", class_name);
+
+            NSString *desc = [obj description];
+            if (desc && ![desc isEqualToString:@""] && ![desc hasPrefix:@"<"] && [desc length] < 100) {
+                Utils::auto_snprintf(buff_n, buff, "(\"%s\")", [desc UTF8String]);
+            }
+        }
+    }
+}
+
+void FuncPrinter::selector_func_general_print(int& buff_n, char* buff, GumCpuContext *cpu_context, const char *class_selector_name) {
+    // Placeholder or implementation if needed
+}
+
+const char * FuncPrinter::get_class_name(id target) {
+    if (target == nil) {
+        return nullptr;
+    }
+
+    Class targetClass = object_getClass(target);
+    BOOL isMetaClass = class_isMetaClass(targetClass);
+    NSString *className = nullptr;
+    if (isMetaClass) {
+        className = NSStringFromClass((Class)target);
+    } else {
+        className = NSStringFromClass([target class]);
+    }
+
+    return [className UTF8String];
+}
+#endif

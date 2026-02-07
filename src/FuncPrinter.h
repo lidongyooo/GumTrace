@@ -22,6 +22,19 @@ public:
     static void jni_after(FUNC_CONTEXT* func_context, GumCpuContext* curr_cpu_context);
 #endif
 
+#if PLATFORM_IOS
+    static void print_ios_object(int& buff_n, char* buff, id obj, int indent_level = 0);
+    static void print_ios_dictionary(int& buff_n, char* buff, id obj, const char *class_name, int indent_level = 0);
+    static void print_ios_array(int& buff_n, char* buff, id obj, const char *class_name, int indent_level = 0);
+    static void print_ios_string(int& buff_n, char* buff, id obj, const char *class_name, int indent_level = 0);
+    static void print_ios_data(int& buff_n, char* buff, id obj, const char *class_name, int indent_level = 0);
+    static void print_ios_number(int& buff_n, char* buff, id obj, const char *class_name, int indent_level = 0);
+    static void print_ios_null(int& buff_n, char* buff, id obj, const char *class_name, int indent_level = 0);
+    static void selector_func_general_print(int& buff_n, char* buff, GumCpuContext *cpu_context, const char *class_selector_name);
+    static const char * get_class_name(id target);
+    static void get_obj_isa_address(uint64_t *isa, uint64_t address, size_t size);
+#endif
+
 };
 
 

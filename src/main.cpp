@@ -21,7 +21,9 @@ gboolean module_symbols_cb(const GumSymbolDetails * details, gpointer user_data)
 
 gboolean module_dependency_cb (const GumDependencyDetails * details, gpointer user_data) {
     auto gum_module = gum_process_find_module_by_name(details->name);
-    gum_module_enumerate_symbols(gum_module, module_symbols_cb, nullptr);
+    if (gum_module != nullptr) {
+        gum_module_enumerate_symbols(gum_module, module_symbols_cb, nullptr);
+    }
     return true;
 }
 
@@ -58,7 +60,6 @@ void init(const char *module_names, char *trace_file_path, int thread_id) {
     instance->trace_thread_id = thread_id;
     instance->trace_file = std::ofstream(instance->trace_file_path, std::ios::out | std::ios::trunc);
 
-
     for (const auto& svc_name : svc_names) {
         auto svc_name_vector = Utils::str_split(svc_name, ' ');
         instance->svc_func_maps[std::stoi(svc_name_vector.at(1))] = svc_name_vector.at(0);
@@ -91,6 +92,7 @@ void init(const char *module_names, char *trace_file_path, int thread_id) {
         delete[] vms;
     }
 #    endif
+
 }
 
 void* thread_function(void* arg) {
