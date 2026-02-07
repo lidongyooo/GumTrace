@@ -13,18 +13,19 @@ add_library(GumTrace SHARED
         src/Utils.cpp
         src/CallbackContext.cpp
         src/FuncPrinter.cpp
-        src/FuncPrinter.h
 )
 
 if(ANDROID)
     message(STATUS "Configuring for Android")
+
+    target_include_directories(GumTrace SYSTEM PUBLIC .
+            /Users/lidongyooo/Library/Android/sdk/ndk/29.0.14206865/toolchains/llvm/prebuilt/darwin-x86_64/sysroot/usr/include)
 
     target_link_libraries(GumTrace PRIVATE ${CMAKE_SOURCE_DIR}/libs/FridaGum-Android-17.6.2.a)
     target_link_libraries(GumTrace PRIVATE log dl m z)
 
 else()
     message(STATUS "Configuring for iOS")
-
 
     set(DEVELOPER_DIR "/Applications/Xcode.app/Contents/Developer")
     set(CMAKE_XCODE_DEVELOPER_DIR ${DEVELOPER_DIR})
@@ -37,6 +38,9 @@ else()
 
     set(CMAKE_OSX_SYSROOT ${IOS_SDK_PATH})
     message(STATUS "iOS SDK Path: ${IOS_SDK_PATH}")
+
+    target_include_directories(GumTrace SYSTEM PUBLIC .
+            ${IOS_SDK_PATH}/System/Library/Frameworks/Foundation.framework/Headers)
 
     set_target_properties(GumTrace PROPERTIES
             BUNDLE FALSE

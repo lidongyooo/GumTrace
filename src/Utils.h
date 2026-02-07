@@ -4,7 +4,7 @@
 
 #ifndef GUMTRACE_UTILS_H
 #define GUMTRACE_UTILS_H
-#include <string>
+// #include <string>
 #include <vector>
 #include <map>
 #include <unordered_map>
@@ -18,15 +18,22 @@
 #include <pthread.h>
 #include <sys/stat.h>
 
-#if PLATFORM_ANDROID
-#include "../libs/FridaGum-Android-17.6.2.h"
-#include <android/log.h>
-#else
-#include "../libs/FridaGum-IOS-17.6.2.h"
-#endif
-
 #define LOG_TAG "gumtrace"
+
+#if PLATFORM_IOS
+
+#include "../libs/FridaGum-IOS-17.6.2.h"
+#include <Foundation.h>
+#define LOGE(...) NSLog(@"[ERROR] %s: %@", LOG_TAG, [NSString stringWithFormat:__VA_ARGS__])
+
+#else
+
+#include "libs/FridaGum-Android-17.6.2.h"
+#include <jni.h>
+#include <android/log.h>
 #define LOGE(...) __android_log_print(ANDROID_LOG_ERROR, LOG_TAG, __VA_ARGS__)
+
+#endif
 
 #define PAGE_SIZE 4096
 
@@ -35,6 +42,9 @@
 
 #define PAGE_ALIGN_UP(addr) \
 (((uintptr_t)(addr) + SYSTEM_PAGE_SIZE - 1) & ~(SYSTEM_PAGE_SIZE - 1))
+
+extern const std::vector<std::string> svc_names;
+extern const std::vector<std::string> jni_func_names;
 
 class Utils {
 public:

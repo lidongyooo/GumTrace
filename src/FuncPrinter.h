@@ -7,6 +7,19 @@
 #include "Utils.h"
 #include "GumTrace.h"
 
+class FuncPrinter {
+public:
+    static void before(FUNC_CONTEXT* func_context);
+    static void syscall(FUNC_CONTEXT* func_context);
+    static void after(FUNC_CONTEXT* func_context, GumCpuContext* curr_cpu_context);
+    static void jni_before(FUNC_CONTEXT* func_context);
+    static void jni_after(FUNC_CONTEXT* func_context, GumCpuContext* curr_cpu_context);
+    static void params_join(FUNC_CONTEXT* func_context, uint count);
+    static void read_string(int& buff_n, char *buff, char* str, size_t max_len = 1024);
+    static void hexdump(int& buff_n, char *buff, uint64_t address, size_t count);
+};
+
+
 typedef enum {
     STR_INDEX_ZERO = 0,
     STR_INDEX_ONE = 1,
@@ -46,17 +59,17 @@ struct BeforeFuncConfig {
     int params_number;
     std::vector<int> string_indices;
     std::vector<std::array<int, 2>> hexdump_indices;
-    std::function<std::stringstream(FUNC_CONTEXT*)> special_handler;
+    std::function<void(FUNC_CONTEXT*)> special_handler;
 
     BeforeFuncConfig(ParamsNumberEnum params = PARAMS_NUMBER_ZERO,
                std::initializer_list<StrEnum> str_idx = {},
                std::initializer_list<HexRegisterPair> hex_idx = {},
-               std::function<std::stringstream(FUNC_CONTEXT*)> handler = nullptr)
+               std::function<void(FUNC_CONTEXT*)> handler = nullptr)
         : params_number(static_cast<int>(params)),
           special_handler(handler) {
 
         for (auto idx : str_idx) {
-            string_indices.push_back(static_cast<int>(idx));
+            string_indices.push_back(idx);
         }
 
         for (const auto& pair : hex_idx) {
@@ -163,16 +176,177 @@ static const std::unordered_map<std::string, BeforeFuncConfig> func_configs = {
     {"__system_property_get", {PARAMS_NUMBER_TWO, {STR_INDEX_ZERO, STR_INDEX_ONE}, {}}},
     {"gettimeofday", {PARAMS_NUMBER_TWO, {}, {{HEX_INDEX_ZERO, HEX_INDEX_SPECIAL_32}}}},
     {"srand48", {PARAMS_NUMBER_ONE, {}, {}}},
+    {"syscall", {PARAMS_NUMBER_ONE, {}, {}, FuncPrinter::syscall}},
     {"arc4random_buf", {PARAMS_NUMBER_TWO, {}, {{HEX_INDEX_ZERO, HEX_INDEX_ONE}}}}
 };
 
-class FuncPrinter {
-public:
-    static void before(FUNC_CONTEXT* func_context);
-    static void after(FUNC_CONTEXT* func_context, GumCpuContext* curr_cpu_context);
-    static void params_join(FUNC_CONTEXT* func_context, uint count);
-    static void read_string(int& buff_n, char *buff, char* str, size_t max_len = 1024);
-    static void hexdump(int& buff_n, char *buff, uint64_t address, size_t count);
+struct AfterJniFuncConfig {
+    int params_number;
+    std::vector<int> string_indices;
+    std::vector<int> curr_string_indices;
+    std::vector<int> jni_string_indices;
+    std::vector<int> curr_jni_string_indices;
+    std::vector<std::array<int, 2>> hexdump_indices;
+    std::vector<std::array<int, 2>> curr_hexdump_indices;
+
+    AfterJniFuncConfig(ParamsNumberEnum params = PARAMS_NUMBER_ZERO,
+                  std::initializer_list<StrEnum> str_idx = {},
+                  std::initializer_list<StrEnum> curr_str_idx = {},
+                  std::initializer_list<StrEnum> jni_str_idx = {},
+                  std::initializer_list<StrEnum> curr_jni_str_idx = {},
+                  std::initializer_list<HexRegisterPair> hex_idx = {},
+                  std::initializer_list<HexRegisterPair> curr_hex_idx = {})
+        : params_number(static_cast<int>(params)) {
+
+        for (auto idx : str_idx) {
+            string_indices.push_back(static_cast<int>(idx));
+        }
+        for (auto idx : curr_str_idx) {
+            curr_string_indices.push_back(static_cast<int>(idx));
+        }
+        for (auto idx : jni_str_idx) {
+            jni_string_indices.push_back(static_cast<int>(idx));
+        }
+        for (auto idx : curr_jni_str_idx) {
+            curr_jni_string_indices.push_back(static_cast<int>(idx));
+        }
+        for (const auto& pair : hex_idx) {
+            hexdump_indices.push_back({
+                static_cast<int>(pair[0]),
+                static_cast<int>(pair[1])
+            });
+        }
+        for (const auto& pair : curr_hex_idx) {
+            curr_hexdump_indices.push_back({
+                static_cast<int>(pair[0]),
+                static_cast<int>(pair[1])
+            });
+        }
+    }
 };
+
+static const std::unordered_map<std::string, AfterJniFuncConfig> after_jni_func_configs = {
+    // FindClass
+    {"FindClass", {
+        PARAMS_NUMBER_TWO,
+        {STR_INDEX_ONE},          // string_index_vector.push_back(1)
+        {},                       // curr_string_index_vector
+        {},                       // jni_string_index_vector
+        {},                       // curr_jni_string_index_vector
+        {},                       // hexdump_vector
+        {}                        // curr_hexdump_vector
+    }},
+
+    {"GetMethodID", {
+        PARAMS_NUMBER_FOUR,
+        {STR_INDEX_TWO, STR_INDEX_THREE},
+        {}, {}, {}, {}, {}
+    }},
+
+    {"GetStaticMethodID", {
+        PARAMS_NUMBER_FOUR,
+        {STR_INDEX_TWO, STR_INDEX_THREE},
+        {}, {}, {}, {}, {}
+    }},
+
+    {"NewString", {
+        PARAMS_NUMBER_TWO,
+        {}, {}, {},
+        {STR_INDEX_ZERO},
+        {}, {}
+    }},
+
+    {"NewStringUTF", {
+        PARAMS_NUMBER_TWO,
+        {STR_INDEX_ONE},
+        {}, {}, {}, {}, {}
+    }},
+
+    {"GetStringLength", {
+        PARAMS_NUMBER_TWO,
+        {}, {},
+        {STR_INDEX_ONE},
+        {}, {}, {}
+    }},
+
+    {"GetStringUTFLength", {
+        PARAMS_NUMBER_TWO,
+        {}, {},
+        {STR_INDEX_ONE},
+        {}, {}, {}
+    }},
+
+    {"GetStringChars", {
+        PARAMS_NUMBER_THREE,
+        {}, {},
+        {STR_INDEX_ONE},
+        {}, {}, {}
+    }},
+
+    {"GetStringUTFChars", {
+        PARAMS_NUMBER_THREE,
+        {}, {},
+        {STR_INDEX_ONE},
+        {}, {}, {}
+    }},
+
+    {"ReleaseStringUTFChars", {
+        PARAMS_NUMBER_THREE,
+        {STR_INDEX_TWO},
+        {},
+        {STR_INDEX_ONE},
+        {}, {}, {}
+    }},
+
+    {"GetStringRegion", {
+        PARAMS_NUMBER_FIVE,
+        {}, {},
+        {STR_INDEX_ONE},
+        {}, {}, {}
+    }},
+
+    {"GetStringUTFRegion", {
+        PARAMS_NUMBER_FIVE,
+        {}, {},
+        {STR_INDEX_ONE},
+        {}, {}, {}
+    }},
+
+    {"GetStringCritical", {
+        PARAMS_NUMBER_THREE,
+        {}, {},
+        {STR_INDEX_ONE},
+        {}, {}, {}
+    }},
+
+    {"ReleaseStringCritical", {
+        PARAMS_NUMBER_THREE,
+        {}, {},
+        {STR_INDEX_ONE},
+        {}, {}, {}
+    }},
+
+    {"GetByteArrayRegion", {
+        PARAMS_NUMBER_FIVE,
+        {}, {}, {}, {},
+        {{HEX_INDEX_FOUR, HEX_INDEX_THREE}},
+        {}
+    }},
+
+    {"SetByteArrayRegion", {
+        PARAMS_NUMBER_FIVE,
+        {}, {}, {}, {},
+        {{HEX_INDEX_FOUR, HEX_INDEX_THREE}},
+        {}
+    }},
+
+    {"GetByteArrayElements", {
+        PARAMS_NUMBER_THREE,
+        {}, {}, {}, {}, {},
+        {{HEX_INDEX_ZERO, HEX_INDEX_SPECIAL_32}}
+    }}
+};
+
+extern const std::vector<std::string> call_jni_methods;
 
 #endif //GUMTRACE_FUNCPRINTER_H

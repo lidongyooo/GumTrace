@@ -11,7 +11,7 @@ GumTrace *GumTrace::get_instance() {
     return &instance;
 }
 
-GumTrace::GumTrace(){
+GumTrace::GumTrace() {
     _stalker = gum_stalker_new();
     gum_stalker_set_trust_threshold(_stalker, 3);
     _transformer = gum_stalker_transformer_make_from_callback(transform_callback, nullptr, nullptr);
@@ -24,11 +24,35 @@ GumTrace::~GumTrace() {
     if (_transformer) g_object_unref(_transformer);
 }
 
+JNIEnv *GumTrace::get_run_time_env() {
+    if (java_vm == nullptr) {
+        return nullptr;
+    }
+
+    if (jni_env == nullptr) {
+        java_vm->GetEnv((void**)&jni_env, JNI_VERSION_1_6);
+    }
+
+    if (jni_env != nullptr && jni_env_init == false) {
+        jni_env_init = true;
+
+        auto jni_func_table = (uint64_t)jni_env->functions;
+        int index = 0;
+        for (const auto &func_name: jni_func_names) {
+            auto func_addr_ptr = (void **)(jni_func_table + index * sizeof(void *));
+            auto func_addr = (uint64_t)(*func_addr_ptr);
+            jni_func_maps[func_addr] = func_name;
+            index++;
+        }
+    }
+    return jni_env;
+}
+
 void GumTrace::callout_callback(GumCpuContext *cpu_context, gpointer user_data) {
     auto self = get_instance();
-    auto callback_ctx = (CALLBACK_CTX *)(user_data);
-    char* buff = self->buffer;
-    int& buff_n = self->buffer_offset;
+    auto callback_ctx = (CALLBACK_CTX *) (user_data);
+    char *buff = self->buffer;
+    int &buff_n = self->buffer_offset;
 
     if (buff_n > BUFFER_SIZE - 1024) {
         self->trace_file.write(buff, buff_n);
@@ -63,7 +87,12 @@ void GumTrace::callout_callback(GumCpuContext *cpu_context, gpointer user_data) 
         }
 
         self->last_func_context.call = false;
-        FuncPrinter::after(&self->last_func_context, cpu_context);
+        if (self->last_func_context.is_jni) {
+            self->last_func_context.is_jni = false;
+            FuncPrinter::jni_after(&self->last_func_context, cpu_context);
+        } else {
+            FuncPrinter::after(&self->last_func_context, cpu_context);
+        }
         self->trace_file.write(self->last_func_context.info, self->last_func_context.info_n);
     }
 
@@ -85,7 +114,6 @@ void GumTrace::callout_callback(GumCpuContext *cpu_context, gpointer user_data) 
         __uint128_t reg_value = 0;
         if ((op.access & CS_AC_READ) && (op.access & CS_AC_WRITE) && op.type == ARM64_OP_REG) {
             if (Utils::get_register_value(op.reg, cpu_context, reg_value)) {
-
                 if (is_first_print) {
                     is_first_print = false;
                     Utils::append_string(buff, buff_n, "; ");
@@ -101,7 +129,6 @@ void GumTrace::callout_callback(GumCpuContext *cpu_context, gpointer user_data) 
             self->write_reg_list.regs[self->write_reg_list.num++] = op.reg;
         } else if (op.access & CS_AC_READ && op.type == ARM64_OP_REG) {
             if (Utils::get_register_value(op.reg, cpu_context, reg_value)) {
-
                 if (is_first_print) {
                     is_first_print = false;
                     Utils::append_string(buff, buff_n, "; ");
@@ -176,7 +203,6 @@ void GumTrace::callout_callback(GumCpuContext *cpu_context, gpointer user_data) 
             }
         } else if (op.access & CS_AC_WRITE && op.type == ARM64_OP_REG) {
             if (Utils::get_register_value(op.reg, cpu_context, reg_value)) {
-
                 if (is_first_print) {
                     is_first_print = false;
                     Utils::append_string(buff, buff_n, "; ");
@@ -198,38 +224,51 @@ void GumTrace::callout_callback(GumCpuContext *cpu_context, gpointer user_data) 
         Utils::append_char(buff, buff_n, '\n');
     }
 
+    if (callback_ctx->instruction.id == ARM64_INS_SVC) {
+        std::string svc_name = self->svc_func_maps[cpu_context->x[8]];
+        self->last_func_context.info_n = 0;
+        self->last_func_context.name = svc_name.c_str();
+        memcpy(&self->last_func_context.cpu_context, cpu_context, sizeof(GumCpuContext));
+        self->last_func_context.call = true;
 
-    __uint128_t jump_addr = 0;
-    if (callback_ctx->instruction.id == ARM64_INS_BL &&
-        callback_ctx->instruction_detail.arm64.operands[0].type == ARM64_OP_IMM) {
-        jump_addr = callback_ctx->instruction_detail.arm64.operands[0].imm;
-    } else if (callback_ctx->instruction.id == ARM64_INS_BLR &&
-               callback_ctx->instruction_detail.arm64.operands[0].type == ARM64_OP_REG) {
-        Utils::get_register_value(callback_ctx->instruction_detail.arm64.operands[0].reg, cpu_context, jump_addr);
-    } else if (callback_ctx->instruction.id == ARM64_INS_BR &&
-               callback_ctx->instruction_detail.arm64.operands[0].type == ARM64_OP_REG) {
-        Utils::get_register_value(callback_ctx->instruction_detail.arm64.operands[0].reg, cpu_context, jump_addr);
-    } else if (callback_ctx->instruction.id == ARM64_INS_B &&
-               callback_ctx->instruction_detail.arm64.operands[0].type == ARM64_OP_IMM) {
-        jump_addr = callback_ctx->instruction_detail.arm64.operands[0].imm;
-    }
+        FuncPrinter::before(&self->last_func_context);
+    } else {
+        __uint128_t jump_addr = 0;
+        if (callback_ctx->instruction.id == ARM64_INS_BL &&
+            callback_ctx->instruction_detail.arm64.operands[0].type == ARM64_OP_IMM) {
+            jump_addr = callback_ctx->instruction_detail.arm64.operands[0].imm;
+        } else if (callback_ctx->instruction.id == ARM64_INS_BLR &&
+                   callback_ctx->instruction_detail.arm64.operands[0].type == ARM64_OP_REG) {
+            Utils::get_register_value(callback_ctx->instruction_detail.arm64.operands[0].reg, cpu_context, jump_addr);
+        } else if (callback_ctx->instruction.id == ARM64_INS_BR &&
+                   callback_ctx->instruction_detail.arm64.operands[0].type == ARM64_OP_REG) {
+            Utils::get_register_value(callback_ctx->instruction_detail.arm64.operands[0].reg, cpu_context, jump_addr);
+        } else if (callback_ctx->instruction.id == ARM64_INS_B &&
+                   callback_ctx->instruction_detail.arm64.operands[0].type == ARM64_OP_IMM) {
+            jump_addr = callback_ctx->instruction_detail.arm64.operands[0].imm;
+        }
 
-    if (jump_addr > 0) {
-        if (self->func_maps.count(jump_addr) > 0) {
-            self->last_func_context.info_n = 0;
-            self->last_func_context.address = jump_addr;
-            self->last_func_context.name = self->func_maps[jump_addr].c_str();
-            // Utils::auto_snprintf(self->last_func_context.info_n, self->last_func_context.info, "call func: %s", jump_addr);
-            // ret_func_value_info << "call func: " << self->func_maps[jump_addr] <<  before_func_general_print(cpu_context, self->func_maps[jump_addr]).str() << "\n";
-            memcpy(&self->last_func_context.cpu_context, cpu_context, sizeof(GumCpuContext));
-            self->last_func_context.call = true;
+        if (jump_addr > 0) {
+            if (self->func_maps.count(jump_addr) > 0) {
+                self->last_func_context.info_n = 0;
+                self->last_func_context.address = jump_addr;
+                self->last_func_context.name = self->func_maps[jump_addr].c_str();
+                memcpy(&self->last_func_context.cpu_context, cpu_context, sizeof(GumCpuContext));
+                self->last_func_context.call = true;
 
-            FuncPrinter::before(&self->last_func_context);
+                FuncPrinter::before(&self->last_func_context);
+            } else if (self->get_run_time_env() != nullptr && self->jni_func_maps.count(jump_addr) > 0) {
+                self->last_func_context.info_n = 0;
+                self->last_func_context.address = jump_addr;
+                self->last_func_context.name = self->jni_func_maps[jump_addr].c_str();
+                memcpy(&self->last_func_context.cpu_context, cpu_context, sizeof(GumCpuContext));
+                self->last_func_context.call = true;
+                self->last_func_context.is_jni = true;
+
+                FuncPrinter::jni_before(&self->last_func_context);
+            }
         }
     }
-
-
-
 
 
     self->trace_flash++;
@@ -242,16 +281,15 @@ void GumTrace::callout_callback(GumCpuContext *cpu_context, gpointer user_data) 
         self->trace_file.flush();
         self->trace_flash = 0;
     }
-
 }
 
-void GumTrace::transform_callback(GumStalkerIterator * iterator, GumStalkerOutput * output, gpointer user_data) {
+void GumTrace::transform_callback(GumStalkerIterator *iterator, GumStalkerOutput *output, gpointer user_data) {
     const auto self = get_instance();
 
     cs_insn *p_insn;
     auto *it = iterator;
     while (gum_stalker_iterator_next(it, (const cs_insn **) &p_insn)) {
-        const std::string* module_name_ptr = self->in_range_module(p_insn->address);
+        const std::string *module_name_ptr = self->in_range_module(p_insn->address);
         if (module_name_ptr == nullptr) {
             gum_stalker_iterator_keep(it);
             continue;
@@ -260,7 +298,8 @@ void GumTrace::transform_callback(GumStalkerIterator * iterator, GumStalkerOutpu
         if (Utils::is_lse(p_insn) == false) {
             auto module = self->get_module_by_name(*module_name_ptr);
 
-            auto callback_ctx = self->callback_context_instance->pull(p_insn, gum_stalker_iterator_get_capstone(it), module_name_ptr->c_str(), module["base"]);
+            auto callback_ctx = self->callback_context_instance->pull(p_insn, gum_stalker_iterator_get_capstone(it),
+                                                                      module_name_ptr->c_str(), module["base"]);
 
             gum_stalker_iterator_put_callout(it, callout_callback, callback_ctx, nullptr);
         }
@@ -269,19 +308,20 @@ void GumTrace::transform_callback(GumStalkerIterator * iterator, GumStalkerOutpu
     }
 }
 
-const std::string* GumTrace::in_range_module(size_t address) {
+const std::string *GumTrace::in_range_module(size_t address) {
     if (last_module_cache.name != nullptr && address >= last_module_cache.base && address < last_module_cache.end) {
         return last_module_cache.name;
     }
+
     for (const auto &pair: modules) {
         const auto &module_map = pair.second;
         size_t base = module_map.at("base");
         size_t size = module_map.at("size");
         size_t end = base + size;
         if (address >= base && address < end) {
-            const_cast<GumTrace*>(this)->last_module_cache.name = &pair.first;
-            const_cast<GumTrace*>(this)->last_module_cache.base = base;
-            const_cast<GumTrace*>(this)->last_module_cache.end = end;
+            last_module_cache.name = &pair.first;
+            last_module_cache.base = base;
+            last_module_cache.end = end;
             return &pair.first;
         }
     }
@@ -293,12 +333,15 @@ std::map<std::string, std::size_t> GumTrace::get_module_by_name(const std::strin
 }
 
 void GumTrace::follow() {
-    trace_thread_id > 0 ? gum_stalker_follow(_stalker, trace_thread_id, _transformer, nullptr) : gum_stalker_follow_me(_stalker, _transformer, nullptr);
+    trace_thread_id > 0
+        ? gum_stalker_follow(_stalker, trace_thread_id, _transformer, nullptr)
+        : gum_stalker_follow_me(_stalker, _transformer, nullptr);
 }
 
 
 void GumTrace::unfollow() {
     if (trace_file.is_open()) {
+        trace_file.write(buffer, buffer_offset);
         trace_file.flush();
         trace_file.close();
     }

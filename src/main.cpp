@@ -57,6 +57,38 @@ void init(const char *module_names, char *trace_file_path, int thread_id) {
     memcpy(instance->trace_file_path, trace_file_path, strlen(trace_file_path));
     instance->trace_thread_id = thread_id;
     instance->trace_file = std::ofstream(instance->trace_file_path, std::ios::out | std::ios::trunc);
+
+
+    for (const auto& svc_name : svc_names) {
+        auto svc_name_vector = Utils::str_split(svc_name, ' ');
+        instance->svc_func_maps[std::stoi(svc_name_vector.at(1))] = svc_name_vector.at(0);
+    }
+
+    auto libart_module = gum_process_find_module_by_name("libart.so");
+    GumAddress JNI_GetCreatedJavaVMs_addr = gum_module_find_symbol_by_name(libart_module, "JNI_GetCreatedJavaVMs");
+    if (JNI_GetCreatedJavaVMs_addr == 0) {
+        JNI_GetCreatedJavaVMs_addr = gum_module_find_export_by_name(libart_module, "JNI_GetCreatedJavaVMs");
+    }
+    if (JNI_GetCreatedJavaVMs_addr == 0) {
+        JNI_GetCreatedJavaVMs_addr = gum_module_find_global_export_by_name("JNI_GetCreatedJavaVMs");
+    }
+    if (JNI_GetCreatedJavaVMs_addr == 0) {
+        LOGE("未找到JNI_GetCreatedJavaVMs符号");
+    } else {
+        typedef jint (*JNI_GetCreatedJavaVMs_t)(JavaVM**, jsize, jsize*);
+        auto *jni_get_created_vms = reinterpret_cast<JNI_GetCreatedJavaVMs_t>(JNI_GetCreatedJavaVMs_addr);
+        jsize vm_count = 1;
+        auto **vms = new JavaVM*[vm_count];
+        jint result = jni_get_created_vms(vms, vm_count, &vm_count);
+        if (result == JNI_OK && vm_count > 0) {
+            instance->java_vm = vms[0];
+            LOGE("成功获取JavaVM: %p", instance->java_vm);
+        } else {
+            LOGE("获取JavaVM失败，错误码: %d", result);
+        }
+
+        delete[] vms;
+    }
 }
 
 void* thread_function(void* arg) {
