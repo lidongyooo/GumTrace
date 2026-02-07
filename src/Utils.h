@@ -15,6 +15,8 @@
 #include <sys/syscall.h>
 #include <sys/mman.h>
 #include "platform.h"
+#include <pthread.h>
+#include <sys/stat.h>
 
 #if PLATFORM_ANDROID
 #include "../libs/FridaGum-Android-17.6.2.h"
@@ -41,6 +43,20 @@ public:
     static bool get_register_value(arm64_reg reg, _GumArm64CpuContext *ctx, __uint128_t &value);
     static void format_uint128_hex(__uint128_t value, int& counter, char* buff);
     static void auto_snprintf(int& counter, char* buff, const char* __restrict __format, ...);
+
+    static inline void append_string(char* buff, int& counter, const char* str) {
+        if (!str) return;
+        while (*str) {
+            buff[counter++] = *str++;
+        }
+    }
+    
+    static inline void append_char(char* buff, int& counter, char c) {
+        buff[counter++] = c;
+    }
+
+    static void append_uint64_hex(char* buff, int& counter, uint64_t val);
+    static void append_uint64_hex_fixed(char* buff, int& counter, uint64_t val);
 };
 
 

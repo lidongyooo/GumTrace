@@ -21,18 +21,20 @@ CallbackContext::~CallbackContext() {
     free(list);
 }
 
-CALLBACK_CTX* CallbackContext::pull(const cs_insn* _instruction, csh _handle, std::string module_name, uint64_t module_base) {
+CALLBACK_CTX* CallbackContext::pull(const cs_insn* _instruction, csh _handle, const char* module_name, uint64_t module_base) {
     if (curr_index >= CALLBACK_CTX_SIZE) {
         curr_index = 0;
     }
 
     CALLBACK_CTX *ctx = &list[curr_index++];
     ctx->handle = _handle;
-    ctx->module_name = std::move(module_name);
+    ctx->module_name = module_name;
     ctx->module_base = module_base;
     memcpy(&ctx->instruction, _instruction, sizeof(cs_insn));
-    memcpy(&ctx->instruction_detail, _instruction->detail, sizeof(cs_detail));
-
+    if (_instruction->detail) {
+        memcpy(&ctx->instruction_detail, _instruction->detail, sizeof(cs_detail));
+    }
+    
     return ctx;
 }
 

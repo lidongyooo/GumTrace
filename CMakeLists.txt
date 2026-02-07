@@ -12,6 +12,8 @@ add_library(GumTrace SHARED
         src/GumTrace.cpp
         src/Utils.cpp
         src/CallbackContext.cpp
+        src/FuncPrinter.cpp
+        src/FuncPrinter.h
 )
 
 if(ANDROID)

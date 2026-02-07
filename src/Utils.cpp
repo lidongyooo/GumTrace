@@ -20,7 +20,7 @@ std::vector<std::string> Utils::str_split(const std::string& s, char symbol) {
 }
 
 bool Utils::is_lse(cs_insn *insn) {
-    if (insn == nullptr) return false; // 防御空指针
+    if (insn == nullptr) return false;
 
     switch (insn->id) {
         case ARM64_INS_LDAXR:
@@ -91,13 +91,42 @@ bool Utils::get_register_value(arm64_reg reg, _GumArm64CpuContext *ctx, __uint12
     return true;
 }
 
+
+static const char hex_chars[] = "0123456789abcdef";
+
+void Utils::append_uint64_hex(char* buff, int& counter, uint64_t val) {
+    if (val == 0) {
+        buff[counter++] = '0';
+        return;
+    }
+    
+    char temp[16];
+    int i = 0;
+    while (val) {
+        temp[i++] = hex_chars[val & 0xF];
+        val >>= 4;
+    }
+    while (i > 0) {
+        buff[counter++] = temp[--i];
+    }
+}
+
+void Utils::append_uint64_hex_fixed(char* buff, int& counter, uint64_t val) {
+    for (int i = 15; i >= 0; --i) {
+        buff[counter + i] = hex_chars[val & 0xF];
+        val >>= 4;
+    }
+    counter += 16;
+}
+
 void Utils::format_uint128_hex(__uint128_t value, int& counter, char* buff) {
     uint64_t high = value >> 64;
     uint64_t low = value;
     if (high > 0) {
-        auto_snprintf(counter, buff, "%llx%016llx", high, low);
+        append_uint64_hex(buff, counter, high);
+        append_uint64_hex_fixed(buff, counter, low);
     } else {
-        auto_snprintf(counter, buff, "%llx", low);
+        append_uint64_hex(buff, counter, low);
     }
 }
 
